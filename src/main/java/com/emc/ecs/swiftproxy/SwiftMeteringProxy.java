@@ -1,4 +1,4 @@
-package com.emc.ecs.eventproxy;
+package com.emc.ecs.swiftproxy;
 
 import io.undertow.Handlers;
 import io.undertow.Undertow;
@@ -19,25 +19,24 @@ import java.util.concurrent.TimeoutException;
 /**
  * Created by cwikj on 11/19/15.
  */
-public class RequestEventProxy {
+public class SwiftMeteringProxy {
     private static final String OPT_PROXY_HOST = "proxy-host";
-    private static final String OPT_AMQP_URI = "amqp-uri";
-    private static final String OPT_QUEUE_NAME = "queue-name";
-    private static final String OPT_VERB_FILTER = "verb-filter";
+    private static final String OPT_MGMT_URI = "mgmt-uri";
+    private static final String OPT_MGMT_USER = "mgmt-user";
+    private static final String OPT_MGMT_PASS = "mgmt-pass";
     private static final String OPT_LISTEN_PORT = "listen-port";
 
     public static void main(String[] args) {
         Options opts = new Options();
         opts.addOption(Option.builder().longOpt(OPT_PROXY_HOST).desc("URI of the destination ECS or load balancer")
                 .hasArg().argName("uri").required().build());
-        opts.addOption(Option.builder().longOpt(OPT_AMQP_URI).desc("URI of the AMQP server")
+        opts.addOption(Option.builder().longOpt(OPT_MGMT_URI).desc("URI of the ECS Management server, e.g. https://x.x.x.x:4443/")
                 .hasArg().argName("uri").required().build());
-        opts.addOption(Option.builder().longOpt(OPT_QUEUE_NAME).desc("Name of queue on server to publish events to")
+        opts.addOption(Option.builder().longOpt(OPT_MGMT_USER).desc("ECS Management User (should be system monitor)")
                 .hasArg().argName("name").required().build());
-        opts.addOption(Option.builder().longOpt(OPT_VERB_FILTER)
-                .desc("Comma-separated list of verbs to notify on, defaults to PUT")
-                .hasArgs().argName("verb,verb,verb...").build());
-        opts.addOption(Option.builder().longOpt(OPT_LISTEN_PORT).desc("Sets the port to listen on, defaults to 9020")
+        opts.addOption(Option.builder().longOpt(OPT_MGMT_PASS)
+                .desc("ECS Management user's password").hasArg().argName("password").build());
+        opts.addOption(Option.builder().longOpt(OPT_LISTEN_PORT).desc("Sets the port to listen on, defaults to 9024")
                 .hasArg().argName("port").build());
 
         CommandLineParser parser = new DefaultParser();
@@ -50,22 +49,22 @@ public class RequestEventProxy {
             System.exit(255);
         }
 
-        RequestEventProxy proxy = new RequestEventProxy();
+        SwiftMeteringProxy proxy = new SwiftMeteringProxy();
 
         if(cli.hasOption(OPT_PROXY_HOST)) {
             proxy.setProxyHost(cli.getOptionValue(OPT_PROXY_HOST));
         }
-        if(cli.hasOption(OPT_AMQP_URI)) {
-            proxy.setAmqpUri(cli.getOptionValue(OPT_AMQP_URI));
+        if(cli.hasOption(OPT_MGMT_URI)) {
+            proxy.setMgmtUri(cli.getOptionValue(OPT_MGMT_URI));
         }
-        if(cli.hasOption(OPT_QUEUE_NAME)) {
-            proxy.setQueueName(cli.getOptionValue(OPT_QUEUE_NAME));
+        if(cli.hasOption(OPT_MGMT_USER)) {
+            proxy.setMgmtUser(cli.getOptionValue(OPT_MGMT_USER));
         }
         if(cli.hasOption(OPT_LISTEN_PORT)) {
             proxy.setListenPort(Integer.parseInt(cli.getOptionValue(OPT_LISTEN_PORT)));
         }
-        if(cli.hasOption(OPT_VERB_FILTER)) {
-            proxy.setVerbFilter(cli.getOptionValues(OPT_VERB_FILTER));
+        if(cli.hasOption(OPT_MGMT_PASS)) {
+            proxy.setMgmtPass(cli.getOptionValue(OPT_MGMT_PASS));
         }
 
         try {
@@ -84,19 +83,19 @@ public class RequestEventProxy {
     }
 
     private String proxyHost;
-    private String amqpUri;
-    private String queueName;
-    private String[] verbFilter = new String[] { "PUT" };
-    private int listenPort = 9020;
+    private String mgmtUri;
+    private String mgmtUser;
+    private String mgmtPass;
+    private int listenPort = 9024;
 
     public void run() throws URISyntaxException, KeyManagementException, TimeoutException, NoSuchAlgorithmException, IOException {
         HttpHandler proxyHandler = Handlers.proxyHandler(new SimpleProxyClientProvider(new URI(proxyHost)));
-        HttpHandler requestEvehtnHandler = new RequestEventHandler(new URI(amqpUri),
-                queueName, buildVerbSet(verbFilter), proxyHandler);
+        HttpHandler swiftMeteringHandler = new SwiftMeteringHandler(new URI(mgmtUri),
+                mgmtUser, mgmtPass, proxyHandler);
 
         Undertow server = Undertow.builder()
                 .addHttpListener(listenPort, "localhost")
-                .setHandler(requestEvehtnHandler).build();
+                .setHandler(swiftMeteringHandler).build();
         server.start();
     }
 
@@ -117,35 +116,36 @@ public class RequestEventProxy {
         this.proxyHost = proxyHost;
     }
 
-    public String getAmqpUri() {
-        return amqpUri;
-    }
-
-    public void setAmqpUri(String amqpUri) {
-        this.amqpUri = amqpUri;
-    }
-
-    public String getQueueName() {
-        return queueName;
-    }
-
-    public void setQueueName(String queueName) {
-        this.queueName = queueName;
-    }
-
-    public String[] getVerbFilter() {
-        return verbFilter;
-    }
-
-    public void setVerbFilter(String[] verbFilter) {
-        this.verbFilter = verbFilter;
-    }
-
     public int getListenPort() {
         return listenPort;
     }
 
     public void setListenPort(int listenPort) {
         this.listenPort = listenPort;
+    }
+
+
+    public String getMgmtUri() {
+        return mgmtUri;
+    }
+
+    public void setMgmtUri(String mgmtUri) {
+        this.mgmtUri = mgmtUri;
+    }
+
+    public String getMgmtUser() {
+        return mgmtUser;
+    }
+
+    public void setMgmtUser(String mgmtUser) {
+        this.mgmtUser = mgmtUser;
+    }
+
+    public String getMgmtPass() {
+        return mgmtPass;
+    }
+
+    public void setMgmtPass(String mgmtPass) {
+        this.mgmtPass = mgmtPass;
     }
 }
